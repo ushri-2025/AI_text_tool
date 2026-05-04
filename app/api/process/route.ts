@@ -33,9 +33,9 @@ function clean(text: string | null) {
   if (!text || typeof text !== "string") return null;
 
   return text
-    .replace(/\b(undefined|null)\b/gi, "") // ✅ undefined fixed
+    .replace(/\b(undefined|null)\b/gi, "")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/\s+/g, " ") // ✅ spacing fixed
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -69,10 +69,13 @@ function delay(ms: number) {
 /* ---------- OPENROUTER ---------- */
 async function openrouter(prompt: string) {
   try {
+    const key = process.env.OPENROUTER_API_KEY;
+    if (!key) return null;
+
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -80,8 +83,16 @@ async function openrouter(prompt: string) {
         messages: [
           {
             role: "system",
-            content:
-              "Return ONLY final text. No explanation. Maintain proper spacing.",
+            content: `
+You are a professional AI writing assistant.
+
+Rules:
+- Always modify the text based on the instruction
+- NEVER return the original text unchanged
+- Fix grammar, improve clarity, or rewrite depending on prompt
+- Ensure output is clearly improved
+- No explanations, only final output
+`,
           },
           { role: "user", content: prompt },
         ],
@@ -102,8 +113,11 @@ async function openrouter(prompt: string) {
 /* ---------- GEMINI ---------- */
 async function gemini(prompt: string) {
   try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return null;
+
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${key}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -134,48 +148,46 @@ function buildPrompt(
   let base = "";
 
   if (mode === "autofix") {
-    base = `Correct grammar perfectly. Return only corrected text.\n${input}`;
-  } else if (mode === "improve") {
-    base = `Rewrite in ${tone} tone with clarity.\n${input}`;
-  } else if (mode === "humanize") {
-    base = `Make this natural and conversational.\n${input}`;
-  } else if (mode === "write") {
-    base = `
-Write high-quality content.
-
-Rules:
-- Default length: within 180 words
-- Follow user instruction if longer required
-
-Formatting:
-- Proper paragraphs
-- Clean spacing
-
-Strict:
-- No explanation
-- No labels
+    base = `Correct all grammar mistakes strictly.
+Fix tense, punctuation, and sentence structure.
+Ensure the sentence is natural and correct.
+Return only corrected text.
 
 Text:
-${input}
-`;
+${input}`;
+  } else if (mode === "improve") {
+    base = `Rewrite the text in a ${tone} tone.
+Improve clarity, wording, and readability.
+Make it sound more polished and refined.
+
+Text:
+${input}`;
+  } else if (mode === "humanize") {
+    base = `Rewrite the text to sound natural and human.
+Avoid robotic phrasing.
+Make it conversational and smooth.
+
+Text:
+${input}`;
+  } else if (mode === "write") {
+    base = `Write high-quality content based on the input.
+
+Requirements:
+- Follow the user's instruction exactly
+- Generate NEW content (do not repeat input)
+- Use proper structure and clarity
+- Default length: up to 180 words (unless specified)
+
+Return only the final content.
+
+Text:
+${input}`;
   }
 
   /* ---------- SMART RETRY ---------- */
   if (retry) {
-    if (mode === "autofix") {
-      base += `
-Correct again more strictly.
-Do NOT rephrase. Only fix grammar.`;
-    } else if (mode === "humanize") {
-      base += `
-Make it sound more natural and human.`;
-    } else if (mode === "improve") {
-      base += `
-Rewrite with slight tone variation.`;
-    } else if (mode === "write") {
-      base += `
-Rewrite with a different structure and flow.`;
-    }
+    base += `
+Rewrite again with a different structure and better quality.`;
   }
 
   return base;
@@ -183,7 +195,7 @@ Rewrite with a different structure and flow.`;
 
 /* ---------- MAIN ---------- */
 export async function POST(req: Request) {
-  await acquireSlot(); // ✅ QUEUE ENTRY
+  await acquireSlot();
 
   try {
     const { input, mode, tone, retry } = await req.json();
@@ -207,12 +219,14 @@ export async function POST(req: Request) {
 
     result = formatOutput(result, mode);
 
-    return NextResponse.json({ output: result && typeof result === "string" ? result : "", });
+    return NextResponse.json({
+      output: result && typeof result === "string" ? result : "",
+    });
   } catch {
     return NextResponse.json({
       output: "Server busy, try again later",
     });
   } finally {
-    releaseSlot(); // ✅ QUEUE EXIT
+    releaseSlot();
   }
 }
