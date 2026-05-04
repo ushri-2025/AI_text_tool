@@ -79,7 +79,7 @@ async function openrouter(prompt: string) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "anthropic/claude-3-haiku",
+        model: "openai/gpt-4o-mini",
         temperature: 0.7,
         messages: [
           {
