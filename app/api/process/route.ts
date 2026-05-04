@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 
+/* ✅ FORCE NODE (fix build issues on Vercel) */
+export const runtime = "nodejs";
+
 /* ---------- QUEUE SYSTEM ---------- */
 let activeRequests = 0;
 const MAX_CONCURRENT = 2;
-const queue: (() => void)[] = [];
+const queue: Array<() => void> = [];
 
 async function acquireSlot() {
   if (activeRequests < MAX_CONCURRENT) {
@@ -23,13 +26,13 @@ function releaseSlot() {
   activeRequests--;
   if (queue.length > 0) {
     const next = queue.shift();
-    next && next();
+    if (next) next();
   }
 }
 
 /* ---------- CLEAN ---------- */
-function clean(text: string | null) {
-  if (!text || typeof text !== "string") return null;
+function clean(text: string | null): string | null {
+  if (!text) return null;
 
   return text
     .replace(/\b(undefined|null)\b/gi, "")
@@ -39,7 +42,7 @@ function clean(text: string | null) {
 }
 
 /* ---------- BAD ---------- */
-function isBad(text: string | null) {
+function isBad(text: string | null): boolean {
   if (!text) return true;
   if (text.length < 5) return true;
   if (/\b(undefined|null)\b/i.test(text)) return true;
@@ -47,7 +50,7 @@ function isBad(text: string | null) {
 }
 
 /* ---------- FORMAT ---------- */
-function formatOutput(text: string, mode: string) {
+function formatOutput(text: string, mode: string): string {
   if (!text) return text;
 
   if (mode === "write") {
@@ -66,11 +69,11 @@ function delay(ms: number) {
 }
 
 /* ---------- GEMINI ---------- */
-async function gemini(prompt: string) {
+async function gemini(prompt: string): Promise<string | null> {
   try {
     const key = process.env.GEMINI_API_KEY;
     if (!key) {
-      console.log("Missing API key");
+      console.log("❌ Missing API key");
       return null;
     }
 
@@ -82,132 +85,104 @@ async function gemini(prompt: string) {
         body: JSON.stringify({
           contents: [
             {
-              role: "user",
               parts: [
                 {
-                  text: prompt,
+                  text: `You are a professional AI writing assistant.
+
+STRICT RULES:
+- ALWAYS rewrite the text (never return same)
+- Fix grammar, clarity, tone
+- Make output natural and fluent
+- For write mode: generate NEW content
+
+IMPORTANT:
+- Return ONLY final output (no explanation)
+
+${prompt}`,
                 },
               ],
             },
           ],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 300,
-          },
         }),
       }
     );
 
     if (!res.ok) {
-      const errText = await res.text();
-      console.log("Gemini API error:", errText);
+      const err = await res.text();
+      console.log("❌ Gemini API error:", err);
       return null;
     }
 
     const data = await res.json();
-    console.log("Gemini RAW:", JSON.stringify(data)); // 🔥 debug
 
-    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const raw =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    if (!raw || typeof raw !== "string") {
-      console.log("No valid output from Gemini");
-      return null;
-    }
+    if (!raw) return null;
 
     return clean(raw);
   } catch (err) {
-    console.log("Fetch error:", err);
+    console.log("❌ Fetch error:", err);
     return null;
   }
-}  
+}
 
-/* ---------- SMART PROMPT ---------- */
+/* ---------- PROMPT ---------- */
 function buildPrompt(
   input: string,
   mode: string,
   tone?: string,
   retry?: boolean
-) {
+): string {
   let base = "";
 
   if (mode === "autofix") {
-    base = `Fix all grammar mistakes in the text.
-
-Requirements:
-- Correct tense, spelling, and punctuation
-- Improve sentence structure if needed
-- Keep original meaning exactly the same
-- Make it natural and fluent
-
-Return only corrected text.
+    base = `Fix grammar, spelling, and punctuation.
 
 Text:
 ${input}`;
   }
 
   else if (mode === "improve") {
-    base = `Rewrite the text in a ${tone} tone.
-
-Requirements:
-- Improve clarity and wording
-- Use better vocabulary and sentence structure
-- Make it polished and refined
-- Keep meaning consistent
-
-Return only improved text.
+    base = `Rewrite in ${tone} tone. Improve clarity and quality.
 
 Text:
 ${input}`;
   }
 
   else if (mode === "humanize") {
-    base = `Rewrite the text to sound natural and human.
-
-Requirements:
-- Make it conversational and smooth
-- Avoid robotic phrasing
-- Improve flow and readability
-- Keep it simple and relatable
-
-Return only rewritten text.
+    base = `Make this text natural and human-like.
 
 Text:
 ${input}`;
   }
 
   else if (mode === "write") {
-    base = `Generate high-quality content based on the instruction.
-
-Requirements:
-- Follow the user's instruction exactly
-- Create NEW content (do NOT repeat input)
-- Use proper structure (paragraphs, flow)
-- Default length: within 180 words unless specified
-
-Return only final content.
+    base = `Write high-quality content based on instruction (max 180 words).
 
 Instruction:
 ${input}`;
   }
 
   if (retry) {
-    base += `
-
-Rewrite again with better clarity, improved structure, and variation.
-Ensure the output is clearly better than before.`;
+    base += `\nRewrite better with more clarity and variation.`;
   }
 
   return base;
 }
 
 /* ---------- MAIN ---------- */
-export async function POST(req: Request) {
+export async function POST(req: Request): Promise<Response> {
   await acquireSlot();
 
   try {
-    const { input, mode, tone, retry } = await req.json();
+    const body = await req.json();
+    const input = body?.input || "";
+    const mode = body?.mode || "autofix";
+    const tone = body?.tone || "formal";
+    const retry = body?.retry || false;
 
-    if (!input?.trim()) {
+    if (!input.trim()) {
       return NextResponse.json({ output: "Enter text." });
     }
 
@@ -215,7 +190,7 @@ export async function POST(req: Request) {
 
     let result = await gemini(prompt);
 
-    /* ---------- SAFETY CHECK ---------- */
+    /* retry if same output */
     if (
       result &&
       result.trim().toLowerCase() === input.trim().toLowerCase()
@@ -224,16 +199,21 @@ export async function POST(req: Request) {
       result = await gemini(prompt);
     }
 
-    if (isBad(result)) result = input;
+    if (isBad(result)) {
+      return NextResponse.json({
+        output: "Receiving many requests at once, try again later.",
+      });
+    }
 
-    result = formatOutput(result, mode);
+    result = formatOutput(result as string, mode);
+
+    return NextResponse.json({ output: result || "" });
+
+  } catch (err) {
+    console.log("❌ Server error:", err);
 
     return NextResponse.json({
-      output: result && typeof result === "string" ? result : "",
-    });
-  } catch {
-    return NextResponse.json({
-      output: "Server busy, try again later",
+      output: "Receiving many requests at once, try again later.",
     });
   } finally {
     releaseSlot();
