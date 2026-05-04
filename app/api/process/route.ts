@@ -69,60 +69,57 @@ function delay(ms: number) {
 async function gemini(prompt: string) {
   try {
     const key = process.env.GEMINI_API_KEY;
-    if (!key) return null;
+    if (!key) {
+      console.log("Missing API key");
+      return null;
+    }
 
     const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`,
-   
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [
             {
+              role: "user",
               parts: [
                 {
-                  text: `You are a professional AI writing assistant.
-
-STRICT RULES:
-- You MUST rewrite or improve the text
-- NEVER return the original text unchanged
-- Fix grammar, clarity, tone, and structure
-- Make the output natural and polished
-- For writing tasks, generate new structured content
-
-IMPORTANT:
-- Do NOT explain anything
-- Return ONLY the final result
-
-${prompt}`,
+                  text: prompt,
                 },
               ],
             },
           ],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 300,
+          },
         }),
       }
     );
- if (!res.ok) {
-      console.log("Gemini error:", await res.text());
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.log("Gemini API error:", errText);
       return null;
     }
 
     const data = await res.json();
+    console.log("Gemini RAW:", JSON.stringify(data)); // 🔥 debug
 
-    const raw =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "";
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!raw) return null;
+    if (!raw || typeof raw !== "string") {
+      console.log("No valid output from Gemini");
+      return null;
+    }
 
     return clean(raw);
   } catch (err) {
     console.log("Fetch error:", err);
     return null;
   }
-
-}
+}  
 
 /* ---------- SMART PROMPT ---------- */
 function buildPrompt(
