@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
-/* ✅ FORCE NODE (fix build issues on Vercel) */
+/* ✅ FORCE NODE */
 export const runtime = "nodejs";
 
-/* ---------- QUEUE SYSTEM ---------- */
+/* ---------- QUEUE ---------- */
 let activeRequests = 0;
 const MAX_CONCURRENT = 2;
 const queue: Array<() => void> = [];
@@ -73,15 +73,16 @@ async function gemini(prompt: string): Promise<string | null> {
   try {
     const key = process.env.GEMINI_API_KEY;
     if (!key) {
-      console.log("❌ Missing API key");
+      console.log("❌ No API key");
       return null;
     }
     const res = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${key}`,
-   
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,    
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           contents: [
             {
@@ -90,13 +91,12 @@ async function gemini(prompt: string): Promise<string | null> {
                   text: `You are a professional AI writing assistant.
 
 STRICT RULES:
-- ALWAYS rewrite the text (never return same)
+- ALWAYS rewrite the text
 - Fix grammar, clarity, tone
 - Make output natural and fluent
 - For write mode: generate NEW content
 
-IMPORTANT:
-- Return ONLY final output (no explanation)
+Return ONLY final output.
 
 ${prompt}`,
                 },
@@ -108,19 +108,20 @@ ${prompt}`,
     );
 
     if (!res.ok) {
-  const err = await res.text();
-  console.log("❌ GEMINI FULL ERROR:", err);
-
-  return "ERROR: " + err;
-}
+      const err = await res.text();
+      console.log("❌ GEMINI ERROR:", err);
+      return null;
+    }
 
     const data = await res.json();
 
-   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const raw =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-  if (!raw) return null;
+    if (!raw) return null;
 
     return clean(raw);
+
   } catch (err) {
     console.log("❌ Fetch error:", err);
     return null;
@@ -137,35 +138,35 @@ function buildPrompt(
   let base = "";
 
   if (mode === "autofix") {
-    base = `Fix grammar, spelling, and punctuation.
+    base = `Fix grammar, spelling, punctuation.
 
 Text:
 ${input}`;
   }
 
   else if (mode === "improve") {
-    base = `Rewrite in ${tone} tone. Improve clarity and quality.
+    base = `Rewrite in ${tone} tone.
 
 Text:
 ${input}`;
   }
 
   else if (mode === "humanize") {
-    base = `Make this text natural and human-like.
+    base = `Make this sound natural.
 
 Text:
 ${input}`;
   }
 
   else if (mode === "write") {
-    base = `Write high-quality content based on instruction (max 180 words).
+    base = `Write content (max 180 words).
 
 Instruction:
 ${input}`;
   }
 
   if (retry) {
-    base += `\nRewrite better with more clarity and variation.`;
+    base += `\nRewrite better with improved clarity.`;
   }
 
   return base;
@@ -177,6 +178,7 @@ export async function POST(req: Request): Promise<Response> {
 
   try {
     const body = await req.json();
+
     const input = body?.input || "";
     const mode = body?.mode || "autofix";
     const tone = body?.tone || "formal";
@@ -190,7 +192,6 @@ export async function POST(req: Request): Promise<Response> {
 
     let result = await gemini(prompt);
 
-    /* retry if same output */
     if (
       result &&
       result.trim().toLowerCase() === input.trim().toLowerCase()
@@ -207,7 +208,9 @@ export async function POST(req: Request): Promise<Response> {
 
     result = formatOutput(result as string, mode);
 
-    return NextResponse.json({ output: result || "" });
+    return NextResponse.json({
+      output: result || "",
+    });
 
   } catch (err) {
     console.log("❌ Server error:", err);
