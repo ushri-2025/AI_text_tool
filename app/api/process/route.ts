@@ -1,224 +1,126 @@
 import { NextResponse } from "next/server";
 
-/* ✅ FORCE NODE */
-export const runtime = "nodejs";
+const GEMINI_API_URL =
+  "[generativelanguage.googleapis.com](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent)";
 
-/* ---------- QUEUE ---------- */
-let activeRequests = 0;
-const MAX_CONCURRENT = 2;
-const queue: Array<() => void> = [];
-
-async function acquireSlot() {
-  if (activeRequests < MAX_CONCURRENT) {
-    activeRequests++;
-    return;
-  }
-
-  await new Promise<void>((resolve) => {
-    queue.push(() => {
-      activeRequests++;
-      resolve();
-    });
+async function callGemini(prompt: string) {
+  const res = await fetch(`${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
   });
-}
 
-function releaseSlot() {
-  activeRequests--;
-  if (queue.length > 0) {
-    const next = queue.shift();
-    if (next) next();
-  }
-}
-
-/* ---------- CLEAN ---------- */
-function clean(text: string | null): string | null {
-  if (!text) return null;
-
-  return text
-    .replace(/\b(undefined|null)\b/gi, "")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/* ---------- BAD ---------- */
-function isBad(text: string | null): boolean {
-  if (!text) return true;
-  if (text.length < 5) return true;
-  if (/\b(undefined|null)\b/i.test(text)) return true;
-  return false;
-}
-
-/* ---------- FORMAT ---------- */
-function formatOutput(text: string, mode: string): string {
-  if (!text) return text;
-
-  if (mode === "write") {
-    return text
-      .replace(/\.\s+/g, ".\n\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
-
+  if (!res.ok) throw new Error("Gemini error");
+  const data = await res.json();
+  const text =
+    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
   return text;
 }
 
-/* ---------- DELAY ---------- */
-function delay(ms: number) {
-  return new Promise((res) => setTimeout(res, ms));
+// --- SIMPLE FALLBACK HELPERS ---
+function basicAutofix(text: string) {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/(\w)([.!?])(?=\w)/g, "$1$2 ")
+    .replace(/(^\w)|([.!?]\s+\w)/g, (c) => c.toUpperCase());
 }
 
-/* ---------- GEMINI ---------- */
-async function gemini(prompt: string): Promise<string | null> {
+function improveFallback(text: string, tone: string) {
+  switch (tone) {
+    case "formal":
+      return `In a formal style: ${text}`;
+    case "casual":
+      return `In a relaxed tone: ${text}`;
+    case "technical":
+      return `Using precise and technical language: ${text}`;
+    default:
+      return text;
+  }
+}
+
+function humanizeFallback(text: string) {
+  return text
+    .replace(/(\butilize\b)/gi, "use")
+    .replace(/(\btherefore\b)/gi, "so")
+    .replace(/(\bconsequently\b)/gi, "as a result")
+    .replace(/(\boverwhelmingly\b)/gi, "mostly")
+    .replace(/(\badditionally\b)/gi, "also");
+}
+
+function writeFallback(request: string) {
+  return `Here's a short piece based on your request: ${request.slice(
+    0,
+    100
+  )}...`;
+}
+
+// --- API ROUTE ---
+export async function POST(req: Request) {
   try {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      console.log("❌ No API key");
-      return null;
+    const { input, mode, tone, retry } = await req.json();
+    if (!input) return NextResponse.json({ output: "" });
+
+    // --- Prompt construction ---
+    let prompt = "";
+    switch (mode) {
+      case "autofix":
+        prompt = `Fix grammar, spelling, punctuation. Keep meaning same. Output only corrected text.\nText: ${input}`;
+        break;
+      case "improve":
+        prompt = `Rewrite the text in a ${tone} tone. Keep meaning same. Output only improved text.\nText: ${input}`;
+        break;
+      case "humanize":
+        prompt = `Rewrite the text to sound natural, human, and simple. Remove AI tone. Output only final text.\nText: ${input}`;
+        break;
+      case "write":
+        prompt = `Generate content based on this request. Keep within 180 words unless user explicitly asks for more. Output only final content.\nRequest: ${input}`;
+        break;
+      default:
+        prompt = input;
     }
-    const res = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,    
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `You are a professional AI writing assistant.
+    if (retry) prompt += "\nGenerate a different version of the result.";
 
-STRICT RULES:
-- ALWAYS rewrite the text
-- Fix grammar, clarity, tone
-- Make output natural and fluent
-- For write mode: generate NEW content
+    // --- Try Gemini once ---
+    try {
+      const output = await callGemini(prompt);
+      if (output) return NextResponse.json({ output });
+    } catch {}
 
-Return ONLY final output.
+    // --- Retry Once Automatically ---
+    try {
+      const output = await callGemini(prompt);
+      if (output) return NextResponse.json({ output });
+    } catch {}
 
-${prompt}`,
-                },
-              ],
-            },
-          ],
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.log("❌ GEMINI ERROR:", err);
-      return null;
-    }
-
-    const data = await res.json();
-
-    const raw =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!raw) return null;
-
-    return clean(raw);
-
-  } catch (err) {
-    console.log("❌ Fetch error:", err);
-    return null;
-  }
-}
-
-/* ---------- PROMPT ---------- */
-function buildPrompt(
-  input: string,
-  mode: string,
-  tone?: string,
-  retry?: boolean
-): string {
-  let base = "";
-
-  if (mode === "autofix") {
-    base = `Fix grammar, spelling, punctuation.
-
-Text:
-${input}`;
-  }
-
-  else if (mode === "improve") {
-    base = `Rewrite in ${tone} tone.
-
-Text:
-${input}`;
-  }
-
-  else if (mode === "humanize") {
-    base = `Make this sound natural.
-
-Text:
-${input}`;
-  }
-
-  else if (mode === "write") {
-    base = `Write content (max 180 words).
-
-Instruction:
-${input}`;
-  }
-
-  if (retry) {
-    base += `\nRewrite better with improved clarity.`;
-  }
-
-  return base;
-}
-
-/* ---------- MAIN ---------- */
-export async function POST(req: Request): Promise<Response> {
-  await acquireSlot();
-
-  try {
-    const body = await req.json();
-
-    const input = body?.input || "";
-    const mode = body?.mode || "autofix";
-    const tone = body?.tone || "formal";
-    const retry = body?.retry || false;
-
-    if (!input.trim()) {
-      return NextResponse.json({ output: "Enter text." });
+    // --- Fallbacks ---
+    let fallback = "";
+    switch (mode) {
+      case "autofix":
+        fallback = basicAutofix(input);
+        break;
+      case "improve":
+        fallback = improveFallback(input, tone);
+        break;
+      case "humanize":
+        fallback = humanizeFallback(input);
+        break;
+      case "write":
+        fallback = writeFallback(input);
+        break;
+      default:
+        fallback = input;
     }
 
-    const prompt = buildPrompt(input, mode, tone, retry);
-
-    let result = await gemini(prompt);
-
-    if (
-      result &&
-      result.trim().toLowerCase() === input.trim().toLowerCase()
-    ) {
-      await delay(200);
-      result = await gemini(prompt);
-    }
-
-    if (isBad(result)) {
+    if (!fallback.trim()) {
       return NextResponse.json({
-        output: "Receiving many requests at once, try again later.",
+        output: "Server busy right now, try again later.",
       });
     }
 
-    result = formatOutput(result as string, mode);
-
+    return NextResponse.json({ output: fallback });
+  } catch {
     return NextResponse.json({
-      output: result || "",
+      output: "Server busy right now, try again later.",
     });
-
-  } catch (err) {
-    console.log("❌ Server error:", err);
-
-    return NextResponse.json({
-      output: "Receiving many requests at once, try again later.",
-    });
-  } finally {
-    releaseSlot();
   }
 }
