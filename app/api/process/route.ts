@@ -21,7 +21,6 @@ async function acquireSlot() {
 
 function releaseSlot() {
   activeRequests--;
-
   if (queue.length > 0) {
     const next = queue.shift();
     next && next();
@@ -66,51 +65,6 @@ function delay(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-/* ---------- OPENROUTER ---------- */
-async function openrouter(prompt: string) {
-  try {
-    const key = process.env.OPENROUTER_API_KEY;
-    if (!key) return null;
-
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        temperature: 0.7,
-        messages: [
-          {
-            role: "system",
-            content: `
-You are a professional AI writing assistant.
-
-STRICT RULES:
-- You MUST modify the text based on the instruction
-- NEVER return the original text unchanged
-- Always improve grammar, clarity, or tone
-- Output must be clearly different from input
-- Do NOT explain anything
-- Return ONLY final text`,
-          },
-          { role: "user", content: prompt },
-        ],
-      }),
-    });
-
-    const data = await res.json();
-    const raw = data?.choices?.[0]?.message?.content;
-
-    if (!raw || typeof raw !== "string") return null;
-
-    return clean(raw);
-  } catch {
-    return null;
-  }
-}
-
 /* ---------- GEMINI ---------- */
 async function gemini(prompt: string) {
   try {
@@ -123,7 +77,28 @@ async function gemini(prompt: string) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [
+            {
+              parts: [
+                {
+                  text: `You are a professional AI writing assistant.
+
+STRICT RULES:
+- You MUST rewrite or improve the text
+- NEVER return the original text unchanged
+- Fix grammar, clarity, tone, and structure
+- Make the output natural and polished
+- For writing tasks, generate new structured content
+
+IMPORTANT:
+- Do NOT explain anything
+- Return ONLY the final result
+
+${prompt}`,
+                },
+              ],
+            },
+          ],
         }),
       }
     );
@@ -149,46 +124,70 @@ function buildPrompt(
   let base = "";
 
   if (mode === "autofix") {
-    base = `Correct all grammar mistakes strictly.
-Fix tense, punctuation, and sentence structure.
-Ensure the sentence is natural and correct.
-Return only corrected text.
-
-Text:
-${input}`;
-  } else if (mode === "improve") {
-    base = `Rewrite the text in a ${tone} tone.
-Improve clarity, wording, and readability.
-Make it sound more polished and refined.
-
-Text:
-${input}`;
-  } else if (mode === "humanize") {
-    base = `Rewrite the text to sound natural and human.
-Avoid robotic phrasing.
-Make it conversational and smooth.
-
-Text:
-${input}`;
-  } else if (mode === "write") {
-    base = `Write high-quality content based on the input.
+    base = `Fix all grammar mistakes in the text.
 
 Requirements:
-- Follow the user's instruction exactly
-- Generate NEW content (do not repeat input)
-- Use proper structure and clarity
-- Default length: up to 180 words (unless specified)
+- Correct tense, spelling, and punctuation
+- Improve sentence structure if needed
+- Keep original meaning exactly the same
+- Make it natural and fluent
 
-Return only the final content.
+Return only corrected text.
 
 Text:
 ${input}`;
   }
 
-  /* ---------- SMART RETRY ---------- */
+  else if (mode === "improve") {
+    base = `Rewrite the text in a ${tone} tone.
+
+Requirements:
+- Improve clarity and wording
+- Use better vocabulary and sentence structure
+- Make it polished and refined
+- Keep meaning consistent
+
+Return only improved text.
+
+Text:
+${input}`;
+  }
+
+  else if (mode === "humanize") {
+    base = `Rewrite the text to sound natural and human.
+
+Requirements:
+- Make it conversational and smooth
+- Avoid robotic phrasing
+- Improve flow and readability
+- Keep it simple and relatable
+
+Return only rewritten text.
+
+Text:
+${input}`;
+  }
+
+  else if (mode === "write") {
+    base = `Generate high-quality content based on the instruction.
+
+Requirements:
+- Follow the user's instruction exactly
+- Create NEW content (do NOT repeat input)
+- Use proper structure (paragraphs, flow)
+- Default length: within 180 words unless specified
+
+Return only final content.
+
+Instruction:
+${input}`;
+  }
+
   if (retry) {
     base += `
-Rewrite again with a different structure and better quality.`;
+
+Rewrite again with better clarity, improved structure, and variation.
+Ensure the output is clearly better than before.`;
   }
 
   return base;
@@ -207,16 +206,15 @@ export async function POST(req: Request) {
 
     const prompt = buildPrompt(input, mode, tone, retry);
 
-    let result = await openrouter(prompt);
-    if (result && result.trim().toLowerCase() === input.trim().toLowerCase()) {
-  result = null;
-}
+    let result = await gemini(prompt);
 
-    /* ---------- FALLBACK ---------- */
-    if (isBad(result)) {
-      await delay(300);
-      const g = await gemini(prompt);
-      if (!isBad(g)) result = g;
+    /* ---------- SAFETY CHECK ---------- */
+    if (
+      result &&
+      result.trim().toLowerCase() === input.trim().toLowerCase()
+    ) {
+      await delay(200);
+      result = await gemini(prompt);
     }
 
     if (isBad(result)) result = input;
