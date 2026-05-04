@@ -108,10 +108,11 @@ ${prompt}`,
     );
 
     if (!res.ok) {
-      const err = await res.text();
-      console.log("❌ Gemini API error:", err);
-      return null;
-    }
+  const err = await res.text();
+  console.log("❌ GEMINI FULL ERROR:", err);
+
+  return "ERROR: " + err;
+}
 
     const data = await res.json();
 
