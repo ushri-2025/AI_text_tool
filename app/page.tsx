@@ -20,7 +20,7 @@ setLoading(true);
 setDisplay("");
 
 try {
-  const res = await fetch("/api/route", {  // ⚠️ ensure backend path is correct
+  const res = await fetch("/api/process", {  // ⚠️ ensure backend path is correct
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input, mode, tone, retry }),
