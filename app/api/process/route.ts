@@ -72,7 +72,8 @@ async function gemini(prompt: string) {
     if (!key) return null;
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`,
+   
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -102,16 +103,25 @@ ${prompt}`,
         }),
       }
     );
+ if (!res.ok) {
+      console.log("Gemini error:", await res.text());
+      return null;
+    }
 
     const data = await res.json();
-    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!raw || typeof raw !== "string") return null;
+    const raw =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "";
+
+    if (!raw) return null;
 
     return clean(raw);
-  } catch {
+  } catch (err) {
+    console.log("Fetch error:", err);
     return null;
   }
+
 }
 
 /* ---------- SMART PROMPT ---------- */
