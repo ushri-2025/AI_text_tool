@@ -77,9 +77,8 @@ async function gemini(prompt: string): Promise<string | null> {
       return null;
     }
     const res = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
-
-    
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${key}`,
+   
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -117,10 +116,9 @@ ${prompt}`,
 
     const data = await res.json();
 
-    const raw =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!raw) return null;
+  if (!raw) return null;
 
     return clean(raw);
   } catch (err) {
