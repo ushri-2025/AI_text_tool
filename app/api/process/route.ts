@@ -79,20 +79,21 @@ async function openrouter(prompt: string) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
+        model: "anthropic/claude-3-haiku",
+        temperature: 0.7,
         messages: [
           {
             role: "system",
             content: `
 You are a professional AI writing assistant.
 
-Rules:
-- Always modify the text based on the instruction
+STRICT RULES:
+- You MUST modify the text based on the instruction
 - NEVER return the original text unchanged
-- Fix grammar, improve clarity, or rewrite depending on prompt
-- Ensure output is clearly improved
-- No explanations, only final output
-`,
+- Always improve grammar, clarity, or tone
+- Output must be clearly different from input
+- Do NOT explain anything
+- Return ONLY final text`,
           },
           { role: "user", content: prompt },
         ],
@@ -207,6 +208,9 @@ export async function POST(req: Request) {
     const prompt = buildPrompt(input, mode, tone, retry);
 
     let result = await openrouter(prompt);
+    if (result && result.trim().toLowerCase() === input.trim().toLowerCase()) {
+  result = null;
+}
 
     /* ---------- FALLBACK ---------- */
     if (isBad(result)) {
