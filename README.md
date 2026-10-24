@@ -1,36 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Autocorrect Tool
 
-## Getting Started
+## Project Overview
 
-First, run the development server:
+AI Autocorrect Tool is an AI-powered web application that helps users write clear, correct, and effective content. Built with Next.js, TypeScript, and the Gemini API, it offers multiple text-processing modes through a simple, user-friendly interface.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Live Demo
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+[**Try AI Autocorrect Tool**](https://ai-text-tool-4q2k.vercel.app)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Grammar** — Correct grammar and spelling.
+- **Improve** — Enhance clarity and readability.
+- **Humanize** — Make text sound natural.
+- **Write** — Generate content using AI.
+- **Rewrite** — Rephrase existing text.
+- **Academic** — Refine academic writing.
+- **Professional** — Improve professional communication.
+- **Summarize** — Shorten text while retaining key points.
 
-## Learn More
+## Tech Stack
 
-To learn more about Next.js, take a look at the following resources:
+- Next.js
+- React.js
+- TypeScript
+- Gemini API
+- Tailwind CSS
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Author
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Ushri Roy** · [GitHub](https://github.com/ushri-2025)
